@@ -1,0 +1,6 @@
+name = "downtik-api"
+main = "src/index.js"
+compatibility_date = "2026-06-27"
+
+[observability]
+enabled = true
