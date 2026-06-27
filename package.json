@@ -1,0 +1,21 @@
+{
+  "name": "downtik-api",
+  "version": "2.0.0",
+  "description": "API Failover Multi-Pipeline untuk TikWM via Cloudflare Workers",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "keywords": [
+    "tiktok",
+    "downloader",
+    "api",
+    "cloudflare-workers"
+  ],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "wrangler": "^3.109.0"
+  }
+}
