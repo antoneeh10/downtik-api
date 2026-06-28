@@ -1,144 +1,113 @@
-// Fungsi pembantu untuk menghasilkan IP publik acak (Seolah-olah IP pengguna berbeda)
-function getRandomIP() {
-  const segments = [
-    Math.floor(Math.random() * 140) + 20,  // Menghindari range IP lokal/private
-    Math.floor(Math.random() * 255),
-    Math.floor(Math.random() * 255),
-    Math.floor(Math.random() * 254) + 1
-  ];
-  return segments.join('.');
-}
-
-// Daftar User-Agent acak agar tidak terdeteksi sebagai bot yang sama
-const userAgents = [
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0"
-];
-
 export default {
   async fetch(request, env, ctx) {
-    // 1. Handle CORS Preflight
+    // 1. Handle CORS Preflight (Biar bisa diakses dari domain mana pun)
     if (request.method === "OPTIONS") {
       return new Response(null, {
         headers: {
           "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+          "Access-Control-Allow-Methods": "GET, OPTIONS",
           "Access-Control-Allow-Headers": "Content-Type",
         },
       });
     }
 
+    // Hanya menerima request GET
+    if (request.method !== "GET") {
+      return new Response(JSON.stringify({ code: -1, msg: "Metode tidak diizinkan. Gunakan GET." }), {
+        status: 405,
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
+      });
+    }
+
+    // 2. Ambil parameter query 'url' dan 'hd' dari request user
     const { searchParams } = new URL(request.url);
     let targetUrl = searchParams.get("url");
+    const hdParam = searchParams.get("hd") || "1"; // Default dibikin HD=1 sesuai bawaan web kamu
+
     if (!targetUrl) {
-      return new Response(JSON.stringify({ code: -1, msg: "Parameter 'url' wajib, bre!" }), {
+      return new Response(JSON.stringify({ 
+        code: -1, 
+        msg: "Parameter 'url' wajib diisi, bre! Contoh: ?url=https://vt.tiktok.com/xxx/" 
+      }), {
         status: 400,
         headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
       });
     }
 
+    // 3. ULTRA CLEANER: Bersihkan URL dari encoding berlapis di sisi server
     try {
-      while (targetUrl.includes('%')) { targetUrl = decodeURIComponent(targetUrl); }
-    } catch (e) {}
+      while (targetUrl.includes('%')) {
+        targetUrl = decodeURIComponent(targetUrl);
+      }
+    } catch (e) {
+      // Abaikan jika sudah bersih
+    }
     targetUrl = targetUrl.trim();
 
-    // 2. GENERATE IP DAN USER AGENT ACAK
-    const fakeIP = getRandomIP();
-    const randomUA = userAgents[Math.floor(Math.random() * userAgents.length)];
+    // 4. Susun Base URL API Baru (Github Dev API)
+    const newApiUrl = `https://cuddly-meme-g4rp7wxxwjjxfv4xp-3000.app.github.dev/api/download?url=${encodeURIComponent(targetUrl)}&hd=${hdParam}`;
 
-    // 3. SUSUN HEADERS DENGAN IP SPOOFING TINGKAT TINGGI
-    const spoofedHeaders = {
-      "User-Agent": randomUA,
-      "X-Forwarded-For": fakeIP,
-      "X-Real-IP": fakeIP,
-      "True-Client-IP": fakeIP,
-      "CF-Connecting-IP": fakeIP,
-      "Client-IP": fakeIP,
-      "VIA": `1.1 Squid Proxy Fake-${Math.floor(Math.random() * 100)}`,
-      "Accept": "application/json, text/plain, */*",
-      "Accept-Language": "en-US,en;q=0.9,id;q=0.8",
-    };
-
-    // 4. STRATEGI CLOUDFLARE EDGE LOCATIONS (Mencoba memaksa request pindah negara)
-    // Cloudflare memiliki fitur `cf: { cfFetch: { ... } }` namun terbatas pada enterprise.
-    // Trik gratisannya: Kita gunakan TikWM POST tetapi dialirkan lewat headers manipulasi.
-    const tikwmFormData = new FormData();
-    tikwmFormData.append("url", targetUrl);
-    tikwmFormData.append("hd", "1");
-
-    // Kita gunakan gabungan trik IP acak ini ke TikWM dan TioDev (sebagai cadangan)
+    // 5. PIPELINE PROXY KEROYOKAN (API di dalam API)
+    // Rute pertama langsung tembak ke API baru, sisanya pakai proxy backup jika rute utama terblokir/down
     const pipelines = [
-      {
-        name: "TikWM Spoofed POST",
-        url: "https://www.tikwm.com/api/",
-        method: "POST",
-        body: tikwmFormData
-      },
-      {
-        name: "TioDev Spoofed GET",
-        url: `https://api.tiodev.my.id/api/tiktok?url=${encodeURIComponent(targetUrl)}`,
-        method: "GET",
-        body: null
-      }
+      newApiUrl, // Jalur utama: langsung tanpa proxy luar
+      `https://api.allorigins.win/raw?url=${encodeURIComponent(newApiUrl)}`,
+      `https://corsproxy.io/?url=${encodeURIComponent(newApiUrl)}`,
+      `https://proxy.corsfix.com/?${encodeURIComponent(newApiUrl)}`,
+      `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(newApiUrl)}`
     ];
 
+    // 6. Mekanisme Failover: Mencoba satu per satu jalur jika ada yang tumbang
     for (let i = 0; i < pipelines.length; i++) {
-      const currentApi = pipelines[i];
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 7000);
-
+      const currentRoute = pipelines[i];
       try {
-        const response = await fetch(currentApi.url, {
-          method: currentApi.method,
-          body: currentApi.body,
-          headers: spoofedHeaders, // SUNTIKKAN HEADERS PALSU DI SINI
-          signal: controller.signal
+        // Set timeout 6 detik per percobaan
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 6000);
+
+        const response = await fetch(currentRoute, {
+          method: "GET",
+          signal: controller.signal,
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+          }
         });
         
         clearTimeout(timeoutId);
+
         if (!response.ok) continue;
 
-        const responseText = await response.text();
-        let resJson = JSON.parse(responseText);
+        const resJson = await response.json();
 
-        // Map hasil TikWM asli
-        if (i === 0 && resJson.code === 0 && resJson.data) {
-          resJson.worker_meta = { status: "success", strategy: "IP Spoofing", fake_ip_used: fakeIP, provider: currentApi.name };
-          return new Response(JSON.stringify(resJson, null, 2), {
-            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
-          });
-        }
-
-        // Map hasil TioDev cadangan jika TikWM memblokir total
-        if (i === 1 && resJson.status === true && resJson.result) {
-          const mappedData = {
-            code: 0,
-            msg: "Success",
-            data: {
-              play: resJson.result.video || resJson.result.nowm,
-              title: resJson.result.title || "TikTok Video",
-              cover: resJson.result.cover || ""
-            },
-            worker_meta: { status: "success", strategy: "IP Spoofing Fallback", fake_ip_used: fakeIP, provider: currentApi.name }
+        // Validasi struktur response (Pastikan API baru kamu mengembalikan format JSON yang sesuai)
+        if (resJson.code === 0 && resJson.data) {
+          // Tambahkan info jalur mana yang sukses tembus untuk tracking internal
+          resJson.worker_meta = {
+            status: "success",
+            pipeline_used: i === 0 ? "Direct Fetch" : "Proxy Route " + i,
+            engine: "DownTik Workers v2.0"
           };
-          return new Response(JSON.stringify(mappedData, null, 2), {
-            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
+
+          return new Response(JSON.stringify(resJson, null, 2), {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+              "Access-Control-Allow-Origin": "*", // Mengizinkan web frontend kamu buat fetch langsung
+              "Cache-Control": "public, max-age=60" // Cache opsional 1 menit
+            }
           });
         }
-
       } catch (err) {
-        clearTimeout(timeoutId);
+        // Jika error/timeout, otomatis lanjut melompati ke proxy berikutnya di looping
         continue;
       }
     }
 
-    // 5. JIKA MASIH GAGAL (Artinya proteksi Cloudflare WAF di TikWM menolak mentah-mentah IP asli Cloudflare)
+    // 7. Gagal Total Response Handler
     return new Response(JSON.stringify({
       code: -1,
-      msg: "TikTok mendeteksi request dari bot Cloudflare. IP Spoofing gagal menembus dinding pertahanan.",
-      error_analysis: `Sudah mencoba menggunakan IP Samaran [${fakeIP}] tetapi koneksi utama Cloudflare diblokir oleh target.`
+      msg: "Semua rute pipa mampet, server API sedang membatasi koneksi atau sedang maintenance. 😭",
+      error_analysis: "Workers gagal menembus Direct Fetch maupun backup multi-proxy pipeline ke API baru."
     }), {
       status: 502,
       headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
