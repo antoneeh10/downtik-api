@@ -45,7 +45,7 @@ export default {
     targetUrl = targetUrl.trim();
 
     // 4. Susun Base URL API Baru (Github Dev API)
-    const newApiUrl = `https://cuddly-meme-g4rp7wxxwjjxfv4xp-3000.app.github.dev/api/download?url=${encodeURIComponent(targetUrl)}&hd=${hdParam}`;
+    const newApiUrl = `https://tikwm.com/api?url=${encodeURIComponent(targetUrl)}&hd=${hdParam}`;
 
     // 5. PIPELINE PROXY KEROYOKAN (API di dalam API)
     // Rute pertama langsung tembak ke API baru, sisanya pakai proxy backup jika rute utama terblokir/down
