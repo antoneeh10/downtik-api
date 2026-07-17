@@ -1,116 +1,135 @@
 export default {
   async fetch(request, env, ctx) {
-    // 1. Handle CORS Preflight (Biar bisa diakses dari domain mana pun)
+    // 1. handle cors preflight super lengkap biar web frontend ga rewel
+    const corsHeaders = {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
+      "Access-Control-Max-Age": "86400",
+    };
+
     if (request.method === "OPTIONS") {
-      return new Response(null, {
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type",
-        },
-      });
+      return new Response(null, { headers: corsHeaders });
     }
 
-    // Hanya menerima request GET
-    if (request.method !== "GET") {
-      return new Response(JSON.stringify({ code: -1, msg: "Metode tidak diizinkan. Gunakan GET." }), {
+    // izinin GET atau POST (biar flexibel)
+    if (request.method !== "GET" && request.method !== "POST") {
+      return new Response(JSON.stringify({ code: -1, msg: "metode kagak diizinkan bre, pake GET atau POST!" }), {
         status: 405,
-        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
+        headers: { "Content-Type": "application/json", ...corsHeaders }
       });
     }
 
-    // 2. Ambil parameter query 'url' dan 'hd' dari request user
+    // 2. ambil parameter query
     const { searchParams } = new URL(request.url);
     let targetUrl = searchParams.get("url");
-    const hdParam = searchParams.get("hd") || "1"; // Default dibikin HD=1 sesuai bawaan web kamu
+    const hdParam = searchParams.get("hd") || "1"; 
 
     if (!targetUrl) {
       return new Response(JSON.stringify({ 
         code: -1, 
-        msg: "Parameter 'url' wajib diisi, bre! Contoh: ?url=https://vt.tiktok.com/xxx/" 
+        msg: "parameter 'url' wajib diisi woi! contoh: ?url=https://vt.tiktok.com/xxx/" 
       }), {
         status: 400,
-        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
+        headers: { "Content-Type": "application/json", ...corsHeaders }
       });
     }
 
-    // 3. ULTRA CLEANER: Bersihkan URL dari encoding berlapis di sisi server
+    // 3. pembersihan url
     try {
       while (targetUrl.includes('%')) {
         targetUrl = decodeURIComponent(targetUrl);
       }
-    } catch (e) {
-      // Abaikan jika sudah bersih
-    }
+    } catch (e) {}
     targetUrl = targetUrl.trim();
 
-    // 4. Susun Base URL API Baru (Github Dev API)
-    const newApiUrl = `https://tikwm.com/api?url=${encodeURIComponent(targetUrl)}&hd=${hdParam}`;
+    // 4. susun pipeline langsung ke API tikwm atau codespace lu
+    // CATATAN: kalo mau pake url github dev, pastikan port di codespace lu udah diset ke PUBLIC!
+    const newApiUrl = `https://cuddly-meme-g4rp7wxxwjjxfv4xp-3000.app.github.dev/api/download?url=${encodeURIComponent(targetUrl)}&hd=${hdParam}`;
+    
+    // alternatif backup: langsung tembak ke api tikwm asli lewat worker (worker kan ga kena cors)
+    const backupTikwmUrl = `https://www.tikwm.com/api/`;
 
-    // 5. PIPELINE PROXY KEROYOKAN (API di dalam API)
-    // Rute pertama langsung tembak ke API baru, sisanya pakai proxy backup jika rute utama terblokir/down
     const pipelines = [
-      newApiUrl, // Jalur utama: langsung tanpa proxy luar
-      `https://api.allorigins.win/raw?url=${encodeURIComponent(newApiUrl)}`,
-      `https://corsproxy.io/?url=${encodeURIComponent(newApiUrl)}`,
-      `https://proxy.corsfix.com/?${encodeURIComponent(newApiUrl)}`,
-      `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(newApiUrl)}`
+      { url: newApiUrl, type: "direct" },
+      { url: `https://corsproxy.io/?url=${encodeURIComponent(newApiUrl)}`, type: "proxy" },
+      { url: backupTikwmUrl, type: "tikwm_direct" } // jalur dewa kalo codespace lu mati/private
     ];
 
-    // 6. Mekanisme Failover: Mencoba satu per satu jalur jika ada yang tumbang
+    // 5. mekanisme failover yang lebih galak
     for (let i = 0; i < pipelines.length; i++) {
-      const currentRoute = pipelines[i];
+      const route = pipelines[i];
       try {
-        // Set timeout 6 detik per percobaan
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 6000);
+        const timeoutId = setTimeout(() => controller.abort(), 7000); // naikin dikit ke 7 detik
 
-        const response = await fetch(currentRoute, {
-          method: "GET",
-          signal: controller.signal,
-          headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-          }
-        });
+        let response;
+        
+        if (route.type === "tikwm_direct") {
+          // kalo pake jalur tikwm langsung, kita kirim POST pake form data biar aman
+          response = await fetch(route.url, {
+            method: "POST",
+            signal: controller.signal,
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            },
+            body: new URLSearchParams({ 'url': targetUrl, 'hd': hdParam })
+          });
+        } else {
+          // jalur biasa (GET)
+          response = await fetch(route.url, {
+            method: "GET",
+            signal: controller.signal,
+            headers: {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+              "Accept": "application/json"
+            }
+          });
+        }
         
         clearTimeout(timeoutId);
 
         if (!response.ok) continue;
 
+        // cek apakah responnya beneran json atau malah halaman login github html/text
+        const contentType = response.headers.get("content-type") || "";
+        if (!contentType.includes("application/json")) {
+          continue; // skip kalo dikasih bumbu html buatan github login 😭
+        }
+
         const resJson = await response.json();
 
-        // Validasi struktur response (Pastikan API baru kamu mengembalikan format JSON yang sesuai)
-        if (resJson.code === 0 && resJson.data) {
-          // Tambahkan info jalur mana yang sukses tembus untuk tracking internal
+        // normalisasi response biar formatnya tetep konsisten di frontend lu
+        if (resJson.code === 0) {
           resJson.worker_meta = {
             status: "success",
-            pipeline_used: i === 0 ? "Direct Fetch" : "Proxy Route " + i,
-            engine: "DownTik Workers v2.0"
+            pipeline_used: `jalur ${route.type} (index ke-${i})`,
+            engine: "downtik workers v2.5 premium super tembus 🗿"
           };
 
           return new Response(JSON.stringify(resJson, null, 2), {
             status: 200,
             headers: {
               "Content-Type": "application/json",
-              "Access-Control-Allow-Origin": "*", // Mengizinkan web frontend kamu buat fetch langsung
-              "Cache-Control": "public, max-age=60" // Cache opsional 1 menit
+              ...corsHeaders,
+              "Cache-Control": "no-store" // biar ga dapet data busuk/stale
             }
           });
         }
       } catch (err) {
-        // Jika error/timeout, otomatis lanjut melompati ke proxy berikutnya di looping
-        continue;
+        continue; // lanjut nyari jalur lain kalo timeout/error
       }
     }
 
-    // 7. Gagal Total Response Handler
+    // 6. handler apes beneran gagal total
     return new Response(JSON.stringify({
       code: -1,
-      msg: "Semua rute pipa mampet, server API sedang membatasi koneksi atau sedang maintenance. 😭",
-      error_analysis: "Workers gagal menembus Direct Fetch maupun backup multi-proxy pipeline ke API baru."
+      msg: "semua rute pipa mampet cok! 😭",
+      tips: "kalo lu pake github codespaces, pastiin status port 3000 udah lu ubah dari 'private' jadi 'public' di tab ports codespace lu!"
     }), {
       status: 502,
-      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
+      headers: { "Content-Type": "application/json", ...corsHeaders }
     });
   }
 };
