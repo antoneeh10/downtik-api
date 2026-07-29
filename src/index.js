@@ -2,57 +2,64 @@ export default {
   async fetch(request, env, ctx) {
     const corsHeaders = {
       "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization",
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type",
     };
 
-    // 1. handle preflight request browser
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: corsHeaders });
     }
 
-    // 2. ambil url target yang mau di-relay dari query param
+    // ambil param dari frontend lu
     const { searchParams } = new URL(request.url);
-    const targetUrl = searchParams.get("url"); // contoh: ?url=https://api.tikwm.com/api/
+    const targetUrl = searchParams.get("url"); // ini isi link tiktoknya
+    const hdParam = searchParams.get("hd") || "1";
 
     if (!targetUrl) {
-      return new Response(JSON.stringify({ error: "p, isi param ?url= dulu bre 😭" }), {
+      return new Response(JSON.stringify({ code: -1, msg: "p, isi param ?url= tiktoknya dulu bre 😭" }), {
         status: 400,
         headers: { "Content-Type": "application/json", ...corsHeaders }
       });
     }
 
     try {
-      // 3. buat request baru buat ditembak ke target (nge-relay)
-      // kita kloning request asli tapi ganti url-nya ke targetUrl
-      const newRequest = new Request(targetUrl, {
-        method: request.method,
+      // pasang form data buat dikirim ke tikwm pusat
+      const formData = new URLSearchParams();
+      formData.append("url", targetUrl);
+      formData.append("hd", hdParam);
+
+      // nembak ke tikwm pake redirect manual biar ga mental ke link tiktok bawaan
+      const response = await fetch("https://www.tikwm.com/api/", {
+        method: "POST",
         headers: {
-          ...Object.fromEntries(request.headers),
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-          // lu bisa override header lain di sini kalau perlu
+          "Content-Type": "application/x-www-form-urlencoded",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         },
-        body: request.method !== "GET" && request.method !== "HEAD" ? await request.text() : undefined,
-        redirect: "follow"
+        body: formData.toString(),
+        redirect: "manual" // KUNCINYA DI SINI COK, BIAR GA DI-REDIRECT OLEH WORKER!
       });
 
-      // 4. tembak ke server target!
-      const response = await fetch(newRequest);
+      // kalau tikwm malah ngasih status redirect (301/302), kita potong langsung
+      if (response.status === 301 || response.status === 302) {
+        return new Response(JSON.stringify({ code: -1, msg: "api tikwm nyoba redirect kita, diblokir worker!", url: response.headers.get("location") }), {
+          status: 502,
+          headers: { "Content-Type": "application/json", ...corsHeaders }
+        });
+      }
 
-      // 5. ambil hasilnya, balikin ke frontend bareng header cors
-      const responseBody = await response.text();
+      const resText = await response.text();
       
-      return new Response(responseBody, {
-        status: response.status,
+      // aman, balikin data berupa string json mentah ke frontend lu
+      return new Response(resText, {
+        status: 200,
         headers: {
-          ...Object.fromEntries(response.headers),
-          ...corsHeaders, // timpah header cors bawaan target pake punya kita biar aman
-          "X-Proxied-By": "Cloudflare-Worker-Relay"
+          "Content-Type": "application/json",
+          ...corsHeaders
         }
       });
 
     } catch (err) {
-      return new Response(JSON.stringify({ error: "relay rontok cok", msg: err.message }), {
+      return new Response(JSON.stringify({ code: -1, msg: "relay crash cok", error: err.message }), {
         status: 500,
         headers: { "Content-Type": "application/json", ...corsHeaders }
       });
