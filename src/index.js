@@ -26,16 +26,17 @@ export default {
 
     // 3. langsung tembak ke tikwm pusat (server-to-server, bebas cors!)
     try {
+      const formData = new URLSearchParams();
+      formData.append("url", targetUrl);
+      formData.append("hd", hdParam);
+
       const response = await fetch("https://www.tikwm.com/api/", {
-        method: "POST", // pake POST biar lebih kebal anti-block
+        method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         },
-        body: new URLSearchParams({
-          "url": targetUrl,
-          "hd": hdParam
-        })
+        body: formData.toString() // di-string-kan biar aman sentosa
       });
 
       if (!response.ok) {
@@ -45,15 +46,24 @@ export default {
         });
       }
 
-      // ambil data asli dari tikwm
-      const resJson = await response.json();
+      // jaga-jaga kalau tikwm ngasih teks biasa/error html bukan json
+      const resText = await response.text();
+      let resJson;
+      try {
+        resJson = JSON.parse(resText);
+      } catch (e) {
+        return new Response(JSON.stringify({ code: -1, msg: "tikwm ga ngasih data json valid coy", raw: resText }), {
+          status: 502,
+          headers: { "Content-Type": "application/json", ...corsHeaders }
+        });
+      }
 
       // 4. balikin datanya ke frontend lu barengan ama corsHeaders
-      return new Response(JSON.stringify(resJson, null, 2), {
+      return new Response(JSON.stringify(resJson), {
         status: 200,
         headers: {
           "Content-Type": "application/json",
-          ...corsHeaders // di sini kuncinya biar frontend lu bisa baca datanya tanpa error!
+          ...corsHeaders
         }
       });
 
