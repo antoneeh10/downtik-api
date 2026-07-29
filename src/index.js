@@ -1,74 +1,58 @@
 export default {
   async fetch(request, env, ctx) {
-    // 1. wajib pasang cors header buat frontend lu (biar browser ga ngambek)
     const corsHeaders = {
       "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization",
     };
 
-    // respon langsung kalo ada preflight request dari browser
+    // 1. handle preflight request browser
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: corsHeaders });
     }
 
-    // 2. ambil param url tiktok dari query string
+    // 2. ambil url target yang mau di-relay dari query param
     const { searchParams } = new URL(request.url);
-    const targetUrl = searchParams.get("url");
-    const hdParam = searchParams.get("hd") || "1";
+    const targetUrl = searchParams.get("url"); // contoh: ?url=https://api.tikwm.com/api/
 
     if (!targetUrl) {
-      return new Response(JSON.stringify({ code: -1, msg: "p, masukin url-nya dulu cok! 😭" }), {
+      return new Response(JSON.stringify({ error: "p, isi param ?url= dulu bre 😭" }), {
         status: 400,
         headers: { "Content-Type": "application/json", ...corsHeaders }
       });
     }
 
-    // 3. langsung tembak ke tikwm pusat (server-to-server, bebas cors!)
     try {
-      const formData = new URLSearchParams();
-      formData.append("url", targetUrl);
-      formData.append("hd", hdParam);
-
-      const response = await fetch("https://www.tikwm.com/api/", {
-        method: "POST",
+      // 3. buat request baru buat ditembak ke target (nge-relay)
+      // kita kloning request asli tapi ganti url-nya ke targetUrl
+      const newRequest = new Request(targetUrl, {
+        method: request.method,
         headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+          ...Object.fromEntries(request.headers),
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+          // lu bisa override header lain di sini kalau perlu
         },
-        body: formData.toString() // di-string-kan biar aman sentosa
+        body: request.method !== "GET" && request.method !== "HEAD" ? await request.text() : undefined,
+        redirect: "follow"
       });
 
-      if (!response.ok) {
-        return new Response(JSON.stringify({ code: -1, msg: "server tikwm lagi rontok bre" }), {
-          status: response.status,
-          headers: { "Content-Type": "application/json", ...corsHeaders }
-        });
-      }
+      // 4. tembak ke server target!
+      const response = await fetch(newRequest);
 
-      // jaga-jaga kalau tikwm ngasih teks biasa/error html bukan json
-      const resText = await response.text();
-      let resJson;
-      try {
-        resJson = JSON.parse(resText);
-      } catch (e) {
-        return new Response(JSON.stringify({ code: -1, msg: "tikwm ga ngasih data json valid coy", raw: resText }), {
-          status: 502,
-          headers: { "Content-Type": "application/json", ...corsHeaders }
-        });
-      }
-
-      // 4. balikin datanya ke frontend lu barengan ama corsHeaders
-      return new Response(JSON.stringify(resJson), {
-        status: 200,
+      // 5. ambil hasilnya, balikin ke frontend bareng header cors
+      const responseBody = await response.text();
+      
+      return new Response(responseBody, {
+        status: response.status,
         headers: {
-          "Content-Type": "application/json",
-          ...corsHeaders
+          ...Object.fromEntries(response.headers),
+          ...corsHeaders, // timpah header cors bawaan target pake punya kita biar aman
+          "X-Proxied-By": "Cloudflare-Worker-Relay"
         }
       });
 
     } catch (err) {
-      return new Response(JSON.stringify({ code: -1, msg: "worker crash/timeout cok", error: err.message }), {
+      return new Response(JSON.stringify({ error: "relay rontok cok", msg: err.message }), {
         status: 500,
         headers: { "Content-Type": "application/json", ...corsHeaders }
       });
