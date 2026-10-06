@@ -21,32 +21,51 @@ export default {
     }
 
     try {
-      // PAKE GET DIRECT KE TIKWM BIAR NGGAK KENA REDIRECT 302 / BLOCK!
-      const apiUrl = `https://www.tikwm.com/api/?url=${encodeURIComponent(targetUrl)}&hd=1`;
+      // PAKE API ALTERNATIF (DELTAV / TIKWM BACKUP) YANG GA KENA LIMIT SHARED IP
+      const apiUrl = `https://api.tiklydown.eu.org/api/download?url=${encodeURIComponent(targetUrl)}`;
       
       const response = await fetch(apiUrl, {
-        method: "GET",
         headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
-          "Accept": "application/json, text/plain, */*"
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         }
       });
 
-      const resText = await response.text();
-      
-      return new Response(resText, {
-        status: 200, // SELALU BALIKIN STATUS 200 BIAR BJS GAK STUCK / MOGOK!
-        headers: {
-          "Content-Type": "application/json",
-          ...corsHeaders
-        }
-      });
+      const data = await response.json();
+
+      // MAPPING RESPON BIKIN FORMAT TIKWM BIAR SKRIP BJS LU GAUSAH DIUBAH-UBAH!
+      if (data && data.video) {
+        const formattedResponse = {
+          code: 0,
+          msg: "success",
+          data: {
+            title: data.title || "video tiktok",
+            cover: data.cover || data.video.cover,
+            play: data.video.noWatermark || data.video.watermark,
+            music: data.music?.play_url || data.video.noWatermark,
+            author: {
+              unique_id: data.author?.unique_id || data.author?.name || "user"
+            },
+            duration: 0
+          }
+        };
+
+        return new Response(JSON.stringify(formattedResponse), {
+          status: 200,
+          headers: { "Content-Type": "application/json", ...corsHeaders }
+        });
+      } else {
+        return new Response(JSON.stringify({ code: -1, msg: "gagal ngambil data dari server cadangan" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json", ...corsHeaders }
+        });
+      }
 
     } catch (err) {
-      return new Response(JSON.stringify({ code: -1, msg: "relay worker error", error: err.message }), {
-        status: 200, // PASTIIN BALIK 200 BIAR BJS MANGGIL CALLBACK SUCCESS NANTI DIBACA BJS ERRORNYA
+      return new Response(JSON.stringify({ code: -1, msg: "error relay", error: err.message }), {
+        status: 200,
         headers: { "Content-Type": "application/json", ...corsHeaders }
       });
     }
   }
 };
+      
