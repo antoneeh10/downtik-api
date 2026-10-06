@@ -21,31 +21,34 @@ export default {
     }
 
     try {
-      // PAKE API ALTERNATIF (DELTAV / TIKWM BACKUP) YANG GA KENA LIMIT SHARED IP
-      const apiUrl = `https://api.tiklydown.eu.org/api/download?url=${encodeURIComponent(targetUrl)}`;
+      // PAKE API ALTERNATIF TIKTOK DOWNLOADER YANG MASIH GACOR
+      const apiUrl = `https://api.v2.lol/tiktok?url=${encodeURIComponent(targetUrl)}`;
       
       const response = await fetch(apiUrl, {
         headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+          "Accept": "application/json"
         }
       });
 
-      const data = await response.json();
+      const resData = await response.json();
 
-      // MAPPING RESPON BIKIN FORMAT TIKWM BIAR SKRIP BJS LU GAUSAH DIUBAH-UBAH!
-      if (data && data.video) {
+      // IF API V2 LOL BERHASIL
+      if (resData && (resData.video || resData.play || resData.data)) {
+        const item = resData.data || resData;
+
         const formattedResponse = {
           code: 0,
           msg: "success",
           data: {
-            title: data.title || "video tiktok",
-            cover: data.cover || data.video.cover,
-            play: data.video.noWatermark || data.video.watermark,
-            music: data.music?.play_url || data.video.noWatermark,
+            title: item.title || item.desc || "video tiktok",
+            cover: item.cover || item.origin_cover || item.dynamic_cover || "",
+            play: item.play || item.video || item.wmplay || "",
+            music: item.music || item.music_info?.play || item.play || "",
             author: {
-              unique_id: data.author?.unique_id || data.author?.name || "user"
+              unique_id: item.author?.unique_id || item.author?.nickname || "user"
             },
-            duration: 0
+            duration: item.duration || 0
           }
         };
 
@@ -53,19 +56,42 @@ export default {
           status: 200,
           headers: { "Content-Type": "application/json", ...corsHeaders }
         });
-      } else {
-        return new Response(JSON.stringify({ code: -1, msg: "gagal ngambil data dari server cadangan" }), {
+      }
+
+      // FALLBACK 2: KALAU PROVIDER ATAS ERROR, PAKE API BACKUP KEDUA AUTOMATIS 🗿
+      const backupUrl = `https://dlPanda.com/api/tiktok?url=${encodeURIComponent(targetUrl)}`;
+      const backupRes = await fetch(backupUrl);
+      const backupData = await backupRes.json();
+
+      if (backupData && backupData.video) {
+        return new Response(JSON.stringify({
+          code: 0,
+          msg: "success",
+          data: {
+            title: backupData.title || "video tiktok",
+            cover: backupData.cover || "",
+            play: backupData.video,
+            music: backupData.audio || backupData.video,
+            author: { unique_id: backupData.author || "user" },
+            duration: 0
+          }
+        }), {
           status: 200,
           headers: { "Content-Type": "application/json", ...corsHeaders }
         });
       }
 
+      // KALAU DUA-DUANYA GAGAL
+      return new Response(JSON.stringify({ code: -1, msg: "semua server downloader lagi sibuk/down bre 😭" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json", ...corsHeaders }
+      });
+
     } catch (err) {
-      return new Response(JSON.stringify({ code: -1, msg: "error relay", error: err.message }), {
+      return new Response(JSON.stringify({ code: -1, msg: "relay worker error", error: err.message }), {
         status: 200,
         headers: { "Content-Type": "application/json", ...corsHeaders }
       });
     }
   }
 };
-      
