@@ -22,7 +22,7 @@ export default {
 
     try {
       // PROVIDER 1: LOFFY / TIKLY BACKUP FAST API
-      const res1 = await fetch(`https://api.v1.lol/tiktok?url=${encodeURIComponent(targetUrl)}`, {
+      const res1 = await fetch(`https://tikwm.com/api?url=${encodeURIComponent(targetUrl)}`, {
         headers: {
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         }
