@@ -21,68 +21,65 @@ export default {
     }
 
     try {
-      // PAKE API ALTERNATIF TIKTOK DOWNLOADER YANG MASIH GACOR
-      const apiUrl = `https://api.v2.lol/tiktok?url=${encodeURIComponent(targetUrl)}`;
-      
-      const response = await fetch(apiUrl, {
+      // PROVIDER 1: LOFFY / TIKLY BACKUP FAST API
+      const res1 = await fetch(`https://api.v1.lol/tiktok?url=${encodeURIComponent(targetUrl)}`, {
         headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-          "Accept": "application/json"
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         }
       });
 
-      const resData = await response.json();
-
-      // IF API V2 LOL BERHASIL
-      if (resData && (resData.video || resData.play || resData.data)) {
-        const item = resData.data || resData;
-
-        const formattedResponse = {
-          code: 0,
-          msg: "success",
-          data: {
-            title: item.title || item.desc || "video tiktok",
-            cover: item.cover || item.origin_cover || item.dynamic_cover || "",
-            play: item.play || item.video || item.wmplay || "",
-            music: item.music || item.music_info?.play || item.play || "",
-            author: {
-              unique_id: item.author?.unique_id || item.author?.nickname || "user"
-            },
-            duration: item.duration || 0
-          }
-        };
-
-        return new Response(JSON.stringify(formattedResponse), {
-          status: 200,
-          headers: { "Content-Type": "application/json", ...corsHeaders }
-        });
+      const contentType1 = res1.headers.get("content-type") || "";
+      
+      // amanin biar ga crash parsing HTML error page
+      if (res1.ok && contentType1.includes("application/json")) {
+        const data1 = await res1.json();
+        if (data1 && (data1.play || data1.video)) {
+          return new Response(JSON.stringify({
+            code: 0,
+            msg: "success",
+            data: {
+              title: data1.title || "video tiktok",
+              cover: data1.cover || "",
+              play: data1.play || data1.video,
+              music: data1.music || data1.play || data1.video,
+              author: { unique_id: data1.author?.unique_id || "user" },
+              duration: 0
+            }
+          }), {
+            status: 200,
+            headers: { "Content-Type": "application/json", ...corsHeaders }
+          });
+        }
       }
 
-      // FALLBACK 2: KALAU PROVIDER ATAS ERROR, PAKE API BACKUP KEDUA AUTOMATIS 🗿
-      const backupUrl = `https://dlPanda.com/api/tiktok?url=${encodeURIComponent(targetUrl)}`;
-      const backupRes = await fetch(backupUrl);
-      const backupData = await backupRes.json();
+      // PROVIDER 2 (FALLBACK): SCRAPE DIRECT TIKWM VIA DYNAMIC HEADERS
+      const formData = new URLSearchParams();
+      formData.append("url", targetUrl);
+      formData.append("hd", "1");
 
-      if (backupData && backupData.video) {
-        return new Response(JSON.stringify({
-          code: 0,
-          msg: "success",
-          data: {
-            title: backupData.title || "video tiktok",
-            cover: backupData.cover || "",
-            play: backupData.video,
-            music: backupData.audio || backupData.video,
-            author: { unique_id: backupData.author || "user" },
-            duration: 0
-          }
-        }), {
-          status: 200,
-          headers: { "Content-Type": "application/json", ...corsHeaders }
-        });
+      const res2 = await fetch("https://www.tikwm.com/api/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1",
+          "Referer": "https://www.tikwm.com/"
+        },
+        body: formData.toString()
+      });
+
+      const contentType2 = res2.headers.get("content-type") || "";
+      if (res2.ok && contentType2.includes("application/json")) {
+        const data2 = await res2.json();
+        if (data2 && data2.code === 0) {
+          return new Response(JSON.stringify(data2), {
+            status: 200,
+            headers: { "Content-Type": "application/json", ...corsHeaders }
+          });
+        }
       }
 
-      // KALAU DUA-DUANYA GAGAL
-      return new Response(JSON.stringify({ code: -1, msg: "semua server downloader lagi sibuk/down bre 😭" }), {
+      // KALAU SEMUA SERVER API LUAR MATI
+      return new Response(JSON.stringify({ code: -1, msg: "semua api server lagi tepar bre, coba beberapa saat lagi 😭" }), {
         status: 200,
         headers: { "Content-Type": "application/json", ...corsHeaders }
       });
